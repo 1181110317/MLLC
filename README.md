@@ -1,6 +1,6 @@
 # MLLC
 This repository contains the implementation of the following manuscript: 
-Hui Xiao, Yuting Hong, Li Dong, Diqun Yan, Jiayan Zhuang, Junjie Xiong, Dongtai Liang, Chengbin Peng. "Multi-Level Label Correction by Distilling Proximate Patterns for Semi-supervised Semantic Segmentation." IEEE Transactions on Multimedia, 2024.  
+Hui Xiao, Yuting Hong, Li Dong, Diqun Yan, Jiayan Zhuang, Junjie Xiong, Dongtai Liang, $\textbf{Chengbin Peng}^{*}$. "Multi-Level Label Correction by Distilling Proximate Patterns for Semi-supervised Semantic Segmentation." IEEE Transactions on Multimedia, 2024.  
 [TMM](https://ieeexplore.ieee.org/abstract/document/10462533/),  [arxiv](https://arxiv.org/abs/2404.02065).
 
 
