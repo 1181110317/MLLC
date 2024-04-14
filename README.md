@@ -1,70 +1,15 @@
-# SSL_CTT
+# MLLC
+This repository contains the implementation of the following manuscript: Hui Xiao, Yuting Hong, Li Dong, Diqun Yan, Jiayan Zhuang, Junjie Xiong, Dongtai Liang, 
+. "Multi-Level Label Correction by Distilling Proximate Patterns for Semi-supervised Semantic Segmentation." IEEE Transactions on Multimedia, 2024.
+TMM, arxiv.
 
-This repository contains the official implementation of the following manuscript: 
-Hui Xiao, Li Dong, Hao Xu, Shuibo Fu, Diqun Yan, Kangkang Song, and Chengbin Peng. "Semi-supervised semantic segmentation with cross teacher training." Neurocomputing 508 (2022): 36-46.  
-[Neurocomputing](https://www.sciencedirect.com/science/article/abs/pii/S0925231222010384),  [arxiv](https://arxiv.org/pdf/2209.01327.pdf).
+Abstract. Semi-supervised semantic segmentation relieves the reliance on large-scale labeled data by leveraging unlabeled data. Recent semi-supervised semantic segmentation approaches mainly resort to pseudo-labeling methods to exploit unlabeled data. However, unreliable pseudo-labeling can undermine the semi-supervision processes. In this paper, we propose an algorithm called Multi-Level Label Correction (MLLC), which aims to use graph neural networks to capture structural relationships in Semantic-Level Graphs (SLGs) and Class-Level Graphs (CLGs) to rectify erroneous pseudo-labels. Specifically, SLGs represent semantic affinities between pairs of pixel features, and CLGs describe classification consistencies between pairs of pixel labels. With the support of proximate pattern information from graphs, MLLC can rectify incorrectly predicted pseudo-labels and can facilitate discriminative feature representations. We design an end-to-end network to train and perform this effective label corrections mechanism. Experiments demonstrate that MLLC can significantly improve supervised baselines and outperforms state-of-the-art approaches in different scenarios on Cityscapes and PASCAL VOC 2012 datasets. Specifically, MLLC improves the supervised baseline by at least 5% and 2% with DeepLabV2 and DeepLabV3+ respectively under different partition protocols.
 
-This code is based on [ClassMix code](https://github.com/WilhelmT/ClassMix)
-
-
-
-> **Abstract.** Convolutional neural networks can achieve remarkable performance in semantic segmentation tasks. However, such neural network approaches heavily rely on costly pixel-level annotation. Semi-supervised learning is a promising resolution to tackle this issue, but its performance still far falls behind the fully supervised counterpart. This work proposes a cross-teacher training framework with three modules that significantly improves traditional semi-supervised learning approaches. The core is a cross-teacher module, which could simultaneously **reduce the coupling among peer networks and the error accumulation between teacher and student networks**. In addition, we propose two complementary contrastive learning modules. The high-level module can **transfer high-quality knowledge from labeled data to unlabeled ones and promote separation between classes in feature space**. The low-level module can **encourage low-quality features learning from the high-quality features among peer networks**. In experiments, the cross-teacher module significantly improves the performance of traditional student–teacher approaches, and our framework outperforms state-of-the-art methods on benchmark datasets.
-
-[![img](https://github.com/1181110317/SSL_CTT/blob/main/img/pipeline.jpg)](https://github.com/1181110317/SSL_CTT/blob/main/img/pipeline.jpg)
-
-## Prerequisites
-
-- CUDA/CUDNN
-- Python3
-- Packages found in requirements.txt
-
-## Datasets
-
-```
-mkdir ../dataset/CityScapes/
-```
-
-Download the dataset from [here](https://www.cityscapes-dataset.com/).
-
-### Pascal VOC 2012
-
-```
-mkdir ../dataset/VOC2012/
-```
-
-Download the dataset from [here](http://host.robots.ox.ac.uk/pascal/VOC/voc2012/).
-
-## Experiments
-
-#### For example, for Cityscapes with deeplabv2:
-
-```
-python3 cross_teacher_contr.py --config ./configs/configCityscapes.json --name deeplabv2_city
-```
-
-#### For example, for PASCAL VOC with deeplabv2:
-
-```
-python3 cross_teacher_contr.py --config ./configs/configVOC.json --name deeplabv2_voc
-```
-
-#### For example, for PASCAL VOC with deeplabv3+:
-
-```
-python3 cross_teacher_deeplabv3+.py --config ./configs/configCityscapes.json --name voc
-```
-
-## Citation
-
-```
-@article{xiao2022semi,
-  title={Semi-supervised semantic segmentation with cross teacher training},
-  author={Xiao, Hui and Dong, Li and Xu, Hao and Fu, Shuibo and Yan, Diqun and Song, Kangkang and Peng, Chengbin},
-  journal={Neurocomputing},
-  volume={508},
-  pages={36--46},
-  year={2022},
-  publisher={Elsevier}
+Citation
+@article{xiao2024multi,
+  title={Multi-Level Label Correction by Distilling Proximate Patterns for Semi-supervised Semantic Segmentation},
+  author={Xiao, Hui and Hong, Yuting and Dong, Li and Yan, Diqun and Xiong, Junjie and Zhuang, Jiayan and Liang, Dongtai and Peng, Chengbin},
+  journal={IEEE Transactions on Multimedia},
+  year={2024},
+  publisher={IEEE}
 }
-```
-
