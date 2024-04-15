@@ -193,7 +193,6 @@ def ema_loss(model, ema_model, images_remain, inputs_u_w, weak_parameters, inter
         pixelWiseWeight = torch.ones(max_probs.shape).cuda()
 
     if consistency_loss == 'CE':
-        # 使用动态损失函数，判断两个网络的置信度，选择各自最有信心的部分来训练另一个网络
         #labels = torch.cat([pseudo_label.unsqueeze(1).float(), max_probs.unsqueeze(1).float()], dim=1)
         L_u = consistency_weight * unlabeled_loss(logits_u_s, pseudo_label, pixelWiseWeight)
         L_u=L_u+consistency_weight*unlabeled_loss(interp(logits_u_p['pred1']),pseudo_label,pixelWiseWeight)
@@ -420,9 +419,6 @@ def update_class_weight(prob,max,class_weight,threshold=0.95):
     return class_weight
 
 
-# 总体框架-----------
-# 两个主体网络，每个主体网络都有一个ema模型指导
-# 学习过程，两个主体网络互相学习，ema指导对应的主体网络学习
 
 
 
@@ -659,7 +655,6 @@ def main():
             loss_l = L_l_l
 
 
-        # 梯度更新
 
         if len(gpus) > 1:
             loss_l = loss_l.mean()
