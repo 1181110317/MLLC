@@ -9,6 +9,8 @@ import torch
 import numpy as np
 from model.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 from torch.autograd import Variable
+from model.cross_graph_layer import *
+from model.non_local import NLBlock
 
 affine_par = True
 
@@ -203,13 +205,151 @@ class Classifier_Module2(nn.Module):
         if get_feat:
             out_dict = {}
             out = self.head[0](out)
-            out_dict['feat'] = F.normalize(out,dim=1)
+            out_dict['feat'] = out
             out = self.head[1](out)
             out_dict['out'] = out
             return out_dict
         else:
             out = self.head(out)
             return out
+
+
+class G2Net(nn.Module):
+    def __init__(self, num_classes, BatchNorm):
+        super(G2Net, self).__init__()
+
+        self.class_graph_conv2d = nn.Sequential(*[
+            # nn.ReflectionPad2d(padding),
+            nn.Conv2d(num_classes, num_classes, kernel_size=1, bias=True),
+            #BatchNorm(num_classes, affine=affine_par),
+            #nn.ReLU(inplace=True),
+            nn.Conv2d(num_classes, num_classes, kernel_size=1, bias=True)])
+
+
+        self.pro_graph_conv2d = nn.Sequential(*[
+            # nn.ReflectionPad2d(padding),
+            nn.Conv2d(256, 256, kernel_size=1, bias=True),
+            #BatchNorm(256, affine=affine_par),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=1, bias=True)])
+
+        self.num_classes=num_classes
+
+        for m in self.class_graph_conv2d:
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.InstanceNorm2d) or isinstance(m, nn.GroupNorm) or isinstance(m, nn.LayerNorm):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+        for m in self.pro_graph_conv2d:
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_out')
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.InstanceNorm2d) or isinstance(m, nn.GroupNorm) or isinstance(m, nn.LayerNorm):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+    def cosine_similarity(self, x_relu):
+        #x_relu = nn.ReLU(inplace=True)(x)
+        x_norm = x_relu / (torch.norm(x_relu, dim=2, keepdim=True) + 10e-10)
+        dist = x_norm.bmm(x_norm.permute(0, 2, 1))
+        #去除负相关变量
+        dist[dist<0]=0
+        return dist
+
+    def proportion_class_weight(self,prob,max,proportion):
+        #num_pixels=max.size(0)*max.size(1)*max.size(2)
+        if proportion==0.0:
+            return (prob!=prob)
+        mask=(prob>=0.95)
+        for i in range(self.num_classes):
+            class_i_prob=prob[max==i]
+            if class_i_prob.size(0)==0:
+                continue
+            threshold=torch.sort(class_i_prob,descending=True)[0][int(class_i_prob.size(0)*proportion)]
+            mask[(prob>=threshold)&(max==i)]=True
+
+        return mask
+
+
+    def g_class_weight(self,prob,max,class_weight,threshold=0.95):
+        class_weight_mask=(class_weight/(torch.max(class_weight)+1e-10))*threshold
+        mask=(prob>=threshold)
+        for i in range(self.num_classes):
+            mask[(prob>=class_weight_mask[i])&(max==i)]=True
+        return mask
+
+    # def g_class_weight(self,prob,max,class_weight=None,threshold=0.95):
+    #     class_every_co=torch.zeros(self.num_classes).cuda()
+    #     mask_threshold=(prob>=threshold)
+    #     for i in range(self.num_classes):
+    #         class_every_co[i]=(mask_threshold&(max==i)).sum()
+    #     class_weight=(class_every_co/(torch.max(class_every_co)+1e-10))*threshold
+    #     mask=(prob>=threshold)
+    #     for i in range(self.num_classes):
+    #         mask[(prob>=class_weight[i])&(max==i)]=True
+    #     return mask
+
+    def forward(self, pred,feat,class_weight=None,proportion=0.0):
+        if class_weight==None:
+            class_weight=torch.tensor([1 for i in range(self.num_classes)]).cuda()
+
+        batch_size, c, h, w = feat.shape
+
+        feat = feat.view(batch_size, 256, -1).permute(0, 2, 1).contiguous()
+
+
+        with torch.no_grad():
+            pred1_prob, pred1_max = torch.max(torch.softmax(pred, dim=1), dim=1)
+            mask = self.g_class_weight(pred1_prob, pred1_max,class_weight).float().view(batch_size, -1).unsqueeze(-1).repeat(1, 1,self.num_classes).float()
+            aff1 = self.cosine_similarity(feat)
+            aff1[aff1 < torch.sort(aff1, descending=True, dim=-1)[0][:,:, 20].unsqueeze(-1).repeat(1, 1, h * w)] = 0
+            aff1 = aff1 + aff1.permute(0, 2, 1)
+            # aff1.diagonal(0,2).fill_(0)
+
+        pred = pred.view(batch_size, self.num_classes, -1).permute(0, 2, 1).contiguous()
+        init_pred1 = pred.clone()
+        diag_aff1_pred = torch.diag_embed(torch.pow(torch.sum(aff1, dim=-1)+1e-10, -0.5))
+        aff1_pred = torch.matmul(diag_aff1_pred, aff1)
+        aff1_pred = torch.matmul(aff1_pred, diag_aff1_pred)
+        for l in range(1):
+            # pred1=0.8*torch.matmul(aff1_pred,pred1)+0.2*init_pred1
+            pred = torch.matmul(aff1_pred, pred)
+        pred = (0.8 * pred + 0.2 * init_pred1) * (1 - mask) + (0.2 * pred + 0.8 * init_pred1) * mask
+        #pred=(pred+init_pred1)/2
+        pred = pred.permute(0, 2, 1).contiguous().view(batch_size,self.num_classes,h,w)
+        pred=self.class_graph_conv2d(pred)
+
+        with torch.no_grad():
+            pred1_one_hot = F.one_hot(pred1_max, num_classes=self.num_classes).float().permute(0, 2, 3,1).contiguous().view(batch_size, -1, self.num_classes).detach()
+            aff1_feat=self.cosine_similarity(torch.softmax(pred,dim=1).view(batch_size,self.num_classes,-1).permute(0,2,1).contiguous())
+            aff1_feat[self.cosine_similarity(pred1_one_hot) == 0] = 0
+            #aff1_feat=aff1_feat*aff1
+            diag_aff1_feat = torch.diag_embed(torch.pow(torch.sum(aff1_feat, dim=-1) + 1e-10, -0.5))
+            aff1_feat = torch.matmul(diag_aff1_feat, aff1_feat)
+            aff1_feat = torch.matmul(aff1_feat, diag_aff1_feat)
+
+        new_feat=torch.matmul(aff1_feat, feat).permute(0, 2, 1).contiguous().view(batch_size,c,h,w)
+        #feat=feat.permute(0, 2, 1).contiguous().view(batch_size,c,h,w)
+
+        feat=self.pro_graph_conv2d(new_feat)
+        #feat=F.normalize(feat,dim=1)
+
+        return pred,feat
+
+
+
+
+
 
 class ResNet101(nn.Module):
     def __init__(self, block, layers, num_classes, BatchNorm, bn_clr=False):
@@ -229,6 +369,13 @@ class ResNet101(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, BatchNorm=BatchNorm)
         #self.layer5 = self._make_pred_layer(Classifier_Module, 2048, [6, 12, 18, 24], [6, 12, 18, 24], num_classes)
         self.layer5 = self._make_pred_layer(Classifier_Module2, 2048, [6, 12, 18, 24], [6, 12, 18, 24], num_classes)
+        self.layer6 = self._make_pred_layer(Classifier_Module2, 2048, [6, 12, 18, 24], [6, 12, 18, 24], 256)
+
+        self.g2layer1=G2Net(num_classes,BatchNorm)
+        self.g2layer2 = G2Net(num_classes, BatchNorm)
+        self.num_classes=num_classes
+        self.feat_d=256
+
         if self.bn_clr:
             self.bn_pretrain = BatchNorm(2048, affine=affine_par)
 
@@ -265,7 +412,28 @@ class ResNet101(nn.Module):
     def _make_pred_layer(self, block, inplanes, dilation_series, padding_series, num_classes):
         return block(inplanes, dilation_series, padding_series, num_classes)
 
-    def forward(self, x, ssl=False, lbl=None):
+    def cosine_similarity(self, x_relu):
+        #x_relu = nn.ReLU(inplace=True)(x)
+        x_norm = x_relu / (torch.norm(x_relu, dim=2, keepdim=True) + 10e-10)
+        dist = x_norm.bmm(x_norm.permute(0, 2, 1))
+        #去除负相关变量
+        dist[dist<0]=0
+        return dist
+
+    def g_class_weight(self,prob,max,threshold=0.95):
+        class_every_co=torch.zeros(self.num_classes).cuda()
+        mask_threshold=(prob>=threshold)
+        for i in range(self.num_classes):
+            class_every_co[i]=(mask_threshold&(max==i)).sum()
+        class_weight=(class_every_co/(torch.max(class_every_co)+1e-10))*threshold
+        mask=(prob>=threshold)
+        for i in range(self.num_classes):
+            mask[(prob>=class_weight[i])&(max==i)]=True
+        return mask
+
+    def forward(self, x, class_weight=None,proportion=0.0,ssl=False, lbl=None,is_graph=True):
+        if class_weight==None:
+            class_weight=torch.tensor([1 for i in range(self.num_classes)]).cuda()
         _, _, h, w = x.size()
         x = self.conv1(x)
         x = self.bn1(x)
@@ -278,7 +446,21 @@ class ResNet101(nn.Module):
         if self.bn_clr:
             x = self.bn_pretrain(x)
 
-        out = self.layer5(x, get_feat=True)
+        out={}
+        out['out'] = self.layer5(x, get_feat=False)
+        out['feat']=self.layer6(x,get_feat=False)
+
+        if is_graph:
+            out['pred1'],out['feat1']=self.g2layer1(out['out'].clone(),out['feat'].clone(),class_weight,proportion)
+            out['pred2'],out['feat2']=self.g2layer2(out['pred1'].clone(),out['feat1'].clone(),class_weight,proportion)
+
+        #out['feat']=F.normalize(out['feat'],dim=1)
+        #out['feat1'] = F.normalize(out['feat1'], dim=1)
+        #out['feat2'] = F.normalize(out['feat2'], dim=1)
+
+
+
+
         # out = dict()
         # out['feat'] = x
         # x = self.layer5(x)
@@ -315,6 +497,9 @@ class ResNet101(nn.Module):
         if self.bn_clr:
             b.append(self.bn_pretrain.parameters())    
         b.append(self.layer5.parameters())
+        b.append(self.layer6.parameters())
+        b.append(self.g2layer1.parameters())
+        b.append(self.g2layer2.parameters())
 
         for j in range(len(b)):
             for i in b[j]:
